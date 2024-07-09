@@ -14,8 +14,9 @@ const path = require("path");
 const fs = require("fs");
 const Place = require("./models/Place");
 const Booking = require("./models/Booking");
-const { uploadOnCloudinary } = require("./utils/cloudinary");
-const { upload } = require("./middlewares/multer.middleware");
+const { upload } = require("./middlewares/multer.middleware.js");
+const { uploadBufferToCloudinary } = require("./utils/cloudinary.js");
+const cloudinary = require("cloudinary").v2;
 {
   /**middlewares */
 }
@@ -131,55 +132,31 @@ app.post("/api/logout", (req, res) => {
 });
 
 app.post("/api/upload-by-link", async (req, res) => {
-  const { link } = req.body;
-  const newName = "photo" + Date.now() + ".jpg";
-  const localFilePath = path.join(__dirname, "uploads", newName);
-
   try {
-    await imageDownloader.image({
-      url: link,
-      dest: localFilePath,
+    const { link } = req.body;
+    const result = await cloudinary.uploader.upload(link, {
+      resource_type: "auto",
     });
-
-    const response = await uploadOnCloudinary(localFilePath);
-    if (response) {
-      res.json({ url: response.url });
-    } else {
-      res.status(500).json({ error: "Failed to upload to Cloudinary" });
-    }
+    res.json({ path: result.secure_url });
   } catch (error) {
-    console.error("Error downloading or uploading image:", error);
-    res.status(500).json({ error: "Failed to process image" });
-  } finally {
-    // Clean up the local file if it exists
-    if (fs.existsSync(localFilePath)) {
-      fs.unlinkSync(localFilePath);
-    }
+    console.error("Error uploading to Cloudinary:", error);
+    res.status(500).json({ error: "Failed to upload image by link" });
   }
 });
 
 app.post("/api/upload", upload.array("photos", 100), async (req, res) => {
-  console.log(req.files);
-  const uploadedFiles = [];
-  for (let i = 0; i < req.files.length; i++) {
-    const { path } = req.files[i];
-    try {
-      const response = await uploadOnCloudinary(path);
-      if (response) {
-        uploadedFiles.push(response.url);
-      } else {
-        res.status(500).json({ error: "Failed to upload file" });
-        return;
-      }
-    } catch (error) {
-      console.error("Error during file upload:", error);
-      res.status(500).json({ error: "Failed to upload file" });
-      return;
+  try {
+    const uploadedFiles = [];
+    for (const file of req.files) {
+      const result = await uploadBufferToCloudinary(file.buffer);
+      uploadedFiles.push(result.secure_url);
     }
+    res.json(uploadedFiles);
+  } catch (error) {
+    console.error("Error uploading to Cloudinary:", error);
+    res.status(500).json({ error: "Failed to upload files" });
   }
-  res.json(uploadedFiles);
 });
-
 app.post("/api/places", (req, res) => {
   const { token } = req.cookies;
   const {
